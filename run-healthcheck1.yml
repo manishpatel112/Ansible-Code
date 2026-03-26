@@ -1,0 +1,63 @@
+---
+- name: Upload and run Windows health check script
+  hosts: windows
+  gather_facts: no
+
+  vars:
+    script_path: "C:\\Scripts\\healthcheck.ps1"
+
+  tasks:
+
+    - name: Ensure Scripts folder exists
+      ansible.windows.win_file:
+        path: "C:\\Scripts"
+        state: directory
+
+    - name: Upload script
+      ansible.windows.win_copy:
+        src: "./scripts/healthcheck.ps1"
+        dest: "{{ script_path }}"
+
+    - name: Run healthcheck script
+      ansible.windows.win_command: >
+        powershell.exe -ExecutionPolicy Bypass -File "{{ script_path }}"
+      register: health_output
+
+    - name: Convert JSON output into dictionary
+      set_fact:
+        health: "{{ health_output.stdout | from_json }}"
+
+    # -------------------------
+    #  ADD COLOR LOGIC
+    # -------------------------
+    - name: Add color indicators
+      set_fact:
+        service_color: "{{ 'Good' if 'RUNNING' in health.ServiceStatus else 'Attention' }}"
+        web_color: "{{ 'Good' if 'OK' in health.WebStatus else 'Attention' }}"
+        cpu_color: "{{ 'Warning' if (health.CCPU | default(health.CPU) | regex_replace(' % CPU Load','') | int) > 70 else 'Good' }}"
+        memory_color: "Good"
+        disk_color: "{{ 'Attention' if (health.Disk.split()[0] | float) < 10 else 'Good' }}"
+
+    # -------------------------
+    #  ADD ICON LOGIC (FIXED)
+    # -------------------------
+    - name: Add icons
+      set_fact:
+        service_icon: "{{ '' if 'RUNNING' in health.ServiceStatus else '' }}"
+        web_icon: "{{ '' if 'OK' in health.WebStatus else '' }}"
+        cpu_icon: "{{ '' if (health.CPU | regex_replace(' % CPU Load','') | int) > 70 else '' }}"
+        memory_icon: ""
+        disk_icon: "{{ '' if (health.Disk.split()[0] | float) < 10 else '' }}"
+
+    # -------------------------------------------------
+    # SEND ADAPTIVE CARD TO TEAMS USING TEMPLATE FILE
+    # -------------------------------------------------
+    - name: Send Adaptive Card to Teams
+      uri:
+        url: "https://ardent365.webhook.office.com/webhookb2/778d27bf-3424-47f5-8dc9-1007a44345b6@513ad1e8-5532-4f6b-ada4-1b55e6560288/IncomingWebhook/7ceef668663a45f9a759656d3a8b009d/8692370d-a030-46a6-bd7f-0c40bb8d77a0/V2vfUkJN88_KBy6VYUSkqmHEW7xhNTxnlT66biiy1411I1"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+        body: "{{ lookup('template', 'adaptive-card.json') }}"
+        body_format: json
+      delegate_to: localhost
