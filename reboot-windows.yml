@@ -1,3 +1,4 @@
+# This playbook safely reboots your Windows EC2 server and waits until it fully comes back online.
 ---
 - name: Reboot Windows servers
   hosts: windows
