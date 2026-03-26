@@ -1,3 +1,4 @@
+# Ansible playbook that installs EVERY available Windows Update (all categories) and forces a reboot at the end — no matter what.
 ---
 - name: Install ALL Windows updates and FORCE reboot
   hosts: windows
