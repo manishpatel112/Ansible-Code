@@ -1,0 +1,57 @@
+---
+- name: Automated Disk Cleanup & Temp File Removal for Windows
+  hosts: windows
+  gather_facts: no
+
+  tasks:
+
+    # ===============================
+    # CLEAN WINDOWS TEMP DIRECTORIES
+    # ===============================
+    - name: Clean Windows Temp folder
+      ansible.windows.win_shell: |
+        Remove-Item -Path "C:\Windows\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue
+      register: win_temp_cleanup
+
+    - name: Clean User Temp folders
+      ansible.windows.win_shell: |
+        Get-ChildItem -Path "C:\Users\*\AppData\Local\Temp\*" -ErrorAction SilentlyContinue |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+      register: user_temp_cleanup
+
+    # ===============================
+    # EMPTY RECYCLE BIN
+    # ===============================
+    - name: Empty Recycle Bin
+      ansible.windows.win_shell: |
+        Clear-RecycleBin -Force -ErrorAction SilentlyContinue
+      register: recyclebin_cleanup
+
+    # ===============================
+    # CLEAN WINDOWS UPDATE CACHE
+    # (Safe + recommended)
+    # ===============================
+    - name: Clean Windows Update download cache
+      ansible.windows.win_shell: |
+        Remove-Item "C:\Windows\SoftwareDistribution\Download\*" -Recurse -Force -ErrorAction SilentlyContinue
+      register: wu_cache_cleanup
+
+    # ===============================
+    # OPTIONAL: CLEAN PREFETCH
+    # ===============================
+    - name: Clean Windows Prefetch (optional)
+      ansible.windows.win_shell: |
+        Remove-Item "C:\Windows\Prefetch\*" -Recurse -Force -ErrorAction SilentlyContinue
+      register: prefetch_cleanup
+
+    # ===============================
+    # SUMMARY OUTPUT
+    # ===============================
+    - name: Summary of disk cleanup
+      ansible.builtin.debug:
+        msg:
+          - "Windows Temp Cleaned"
+          - "User Temp Cleaned"
+          - "Recycle Bin Emptied"
+          - "Windows Update Cache Cleaned"
+          - "Prefetch Cleaned"

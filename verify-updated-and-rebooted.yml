@@ -1,0 +1,91 @@
+---
+- name: Verify Windows is up-to-date and was rebooted after patching
+  hosts: windows
+  gather_facts: no
+
+  vars:
+    # How many minutes back you expect the reboot to have happened.
+    # Set this to the time since you ran the patch playbook.
+    expected_reboot_within_minutes: 180
+
+    # Optional: list KBs you expected from your patch run.
+    # Leave empty if you don't want to check specific KBs.
+    expected_kbs: []   # e.g. ["KB5078739","KB5066131"]
+
+    # Categories to check (match what you patch with)
+    categories_to_check:
+      - SecurityUpdates
+      - CriticalUpdates
+      - UpdateRollups
+
+  tasks:
+    - name: Check pending updates (no install)
+      ansible.windows.win_updates:
+        category_names: "{{ categories_to_check }}"
+        state: searched
+      register: pending
+      changed_when: false
+
+    - name: Assert there are no pending updates
+      ansible.builtin.assert:
+        that:
+          - (pending.found_update_count | int) == 0
+        fail_msg: "Updates still pending! Found: {{ pending.found_update_count }}"
+        success_msg: "No pending updates. System appears up-to-date."
+
+    - name: Capture last boot time (ISO)
+      ansible.windows.win_shell: |
+        (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString("yyyy-MM-ddTHH:mm:ss")
+      register: last_boot_raw
+      changed_when: false
+
+    - name: Minutes since last boot (remote calc)
+      ansible.windows.win_shell: |
+        $lb = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+        [math]::Round((New-TimeSpan -Start $lb -End (Get-Date)).TotalMinutes)
+      register: minutes_since_boot
+      changed_when: false
+
+    - name: Assert reboot happened within expected window
+      ansible.builtin.assert:
+        that:
+          - (minutes_since_boot.stdout | int) <= (expected_reboot_within_minutes | int)
+        fail_msg: >-
+          System last boot was {{ minutes_since_boot.stdout }} minutes ago ({{ last_boot_raw.stdout | trim }}),
+          which is outside the expected window of {{ expected_reboot_within_minutes }} minutes.
+        success_msg: >-
+          System rebooted recently: {{ minutes_since_boot.stdout }} minutes ago ({{ last_boot_raw.stdout | trim }}).
+
+    - name: Show recent reboot-related events (IDs 1074/6006/6008)
+      ansible.windows.win_shell: |
+        $since = (Get-Date).AddMinutes(-{{ expected_reboot_within_minutes }})
+        $events = Get-WinEvent -FilterHashtable @{ LogName='System'; StartTime=$since } |
+          Where-Object { $_.Id -in 1074,6006,6008 } |
+          Select-Object -First 8 |
+          ForEach-Object {
+            "{0} | ID={1} | {2}" -f $_.TimeCreated.ToString('yyyy-MM-ddTHH:mm:ss'), $_.Id, $_.ProviderName
+          }
+        if ($events) { $events -join "`n" } else { "NONE" }
+      register: reboot_events
+      changed_when: false
+
+    - name: Print reboot-related events
+      ansible.builtin.debug:
+        msg: "{{ reboot_events.stdout }}"
+
+    - name: (Optional) Verify expected KBs are present
+      when: expected_kbs | length > 0
+      block:
+        - name: List installed HotFix IDs
+          ansible.windows.win_shell: |
+            Get-HotFix | Select-Object -ExpandProperty HotFixID
+          register: installed_hfs
+          changed_when: false
+
+        - name: Assert all expected KBs are present
+          ansible.builtin.assert:
+            that:
+              - expected_kbs | difference(installed_hfs.stdout_lines | list) | length == 0
+            fail_msg: >-
+              Missing KBs: {{ expected_kbs | difference(installed_hfs.stdout_lines | list) }}
+            success_msg: "Expected KBs present."

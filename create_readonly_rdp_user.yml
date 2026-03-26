@@ -1,0 +1,33 @@
+---
+- name: Create a read-only Windows user with RDP login
+  hosts: windows
+  gather_facts: no
+
+  tasks:
+
+    - name: Create user "devuser"
+      ansible.windows.win_user:
+        name: devuser
+        password: Pass@12345
+        state: present
+
+    - name: Add devuser to Remote Desktop Users group (allows RDP login)
+      ansible.windows.win_group_membership:
+        name: "Remote Desktop Users"
+        members:
+          - devuser
+        state: present
+
+    - name: Allow devuser to log on through Remote Desktop Services
+      ansible.windows.win_user_right:
+        name: SeRemoteInteractiveLogonRight
+        users:
+          - devuser
+        action: add
+
+    - name: Allow devuser to log on locally (optional)
+      ansible.windows.win_user_right:
+        name: SeInteractiveLogonRight
+        users:
+          - devuser
+        action: add

@@ -1,0 +1,45 @@
+---
+- name: Patch Windows and reboot safely (two-pass)
+  hosts: windows            # change to your group/limit as needed
+  gather_facts: no
+
+  vars:
+    # Update categories (tweak as needed)
+    windows_update_categories:
+      - SecurityUpdates
+      - CriticalUpdates
+      - UpdateRollups
+    # Reboot wait time (seconds)
+    windows_update_reboot_timeout: 1800
+    post_reboot_delay: 30
+
+  tasks:
+    - name: Install updates (pass 1)
+      ansible.windows.win_updates:
+        category_names: "{{ windows_update_categories }}"
+        reboot: false
+      register: updates_pass1
+
+    - name: Reboot if required (after pass 1)
+      ansible.windows.win_reboot:
+        reboot_timeout: "{{ windows_update_reboot_timeout }}"
+        post_reboot_delay: "{{ post_reboot_delay }}"
+      when: updates_pass1.reboot_required | default(false)
+
+    - name: Install updates (pass 2)
+      ansible.windows.win_updates:
+        category_names: "{{ windows_update_categories }}"
+        reboot: false
+      register: updates_pass2
+
+    - name: Reboot if required (after pass 2)
+      ansible.windows.win_reboot:
+        reboot_timeout: "{{ windows_update_reboot_timeout }}"
+        post_reboot_delay: "{{ post_reboot_delay }}"
+      when: updates_pass2.reboot_required | default(false)
+
+    - name: Show summary
+      ansible.builtin.debug:
+        msg:
+          - "Pass1 installed: {{ updates_pass1.updates | default([]) | length }} updates"
+          - "Pass2 installed: {{ updates_pass2.updates | default([]) | length }} updates"

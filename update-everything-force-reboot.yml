@@ -1,0 +1,67 @@
+---
+- name: Install ALL Windows updates and FORCE reboot
+  hosts: windows
+  gather_facts: no
+
+  vars:
+    update_source: windows_update        # change to 'managed_server' if using WSUS
+    reboot_timeout: 1800                 # wait up to 30 minutes for reboot
+    post_reboot_delay: 30
+
+  tasks:
+
+    # ---------------------------
+    # PASS 1: Install EVERYTHING
+    # ---------------------------
+    - name: Install ALL updates (pass 1)
+      ansible.windows.win_updates:
+        state: installed
+        server_selection: "{{ update_source }}"
+        accept_list:
+          - "*"
+        reboot: no
+      register: p1
+
+    - name: Reboot if required (pass 1)
+      ansible.windows.win_reboot:
+        reboot_timeout: "{{ reboot_timeout }}"
+        post_reboot_delay: "{{ post_reboot_delay }}"
+      when: p1.reboot_required | default(false)
+
+    # ---------------------------
+    # PASS 2: Install EVERYTHING AGAIN
+    # ---------------------------
+    - name: Install ALL updates (pass 2)
+      ansible.windows.win_updates:
+        state: installed
+        server_selection: "{{ update_source }}"
+        accept_list:
+          - "*"
+        reboot: no
+      register: p2
+
+    - name: Reboot if required (pass 2)
+      ansible.windows.win_reboot:
+        reboot_timeout: "{{ reboot_timeout }}"
+        post_reboot_delay: "{{ post_reboot_delay }}"
+      when: p2.reboot_required | default(false)
+
+    # ---------------------------
+    # FINAL MANDATORY REBOOT
+    # ---------------------------
+    - name: FORCE reboot even if no update required it
+      ansible.windows.win_reboot:
+        msg: "Mandatory reboot after full system update"
+        reboot_timeout: "{{ reboot_timeout }}"
+        post_reboot_delay: "{{ post_reboot_delay }}"
+
+    # ---------------------------
+    # SUMMARY
+    # ---------------------------
+    - name: Summary of installed updates
+      ansible.builtin.debug:
+        msg:
+          - "Pass 1 installed: {{ p1.updates | default([]) | length }} updates"
+          - "{{ p1.updates | default([]) }}"
+          - "Pass 2 installed: {{ p2.updates | default([]) | length }} updates"
+          - "{{ p2.updates | default([]) }}"
