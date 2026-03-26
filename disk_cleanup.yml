@@ -1,3 +1,4 @@
+# This playbook removes temp files, clears caches, empties recycle bin, and frees up disk space safely on a Windows server.
 ---
 - name: Automated Disk Cleanup & Temp File Removal for Windows
   hosts: windows
