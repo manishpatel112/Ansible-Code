@@ -1,3 +1,4 @@
+# healthcheck.ps1 checks IIS service, website availability, CPU, memory, and disk usage, then outputs the results in JSON format so Ansible can read it.
 ---
 - name: Upload and run Windows health check script
   hosts: windows
