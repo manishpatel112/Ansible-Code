@@ -1,3 +1,4 @@
+# This playbook installs Windows updates in two rounds and reboots your Windows server whenever needed — ensuring the system is fully patched.
 ---
 - name: Patch Windows and reboot safely (two-pass)
   hosts: windows            # change to your group/limit as needed
