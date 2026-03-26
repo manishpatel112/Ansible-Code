@@ -1,3 +1,4 @@
+# This playbook creates a normal (non-admin) Windows user and gives them permission to log in via Remote Desktop.
 ---
 - name: Create a read-only Windows user with RDP login
   hosts: windows
