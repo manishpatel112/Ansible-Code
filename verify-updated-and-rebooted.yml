@@ -1,3 +1,4 @@
+# This playbook verifies that Windows is fully patched, confirms the server rebooted recently after patching, checks reboot logs, and optionally verifies specific KBs were installed.
 ---
 - name: Verify Windows is up-to-date and was rebooted after patching
   hosts: windows
