@@ -1,0 +1,193 @@
+# ==========================================================
+# Full Windows Update Installer + Force Reboot + Simple Teams Alert
+# Includes:
+#  Install All Updates (Pass 1 + Pass 2)
+#  Force Final Reboot
+#  Color-Coded Teams Notification (SUCCESS/FAILURE)
+#  Weekly Auto-Schedule (Sunday @ 2 AM)
+#  IT-Friendly Headings
+# ==========================================================
+
+---
+- name: Install ALL Windows updates and FORCE reboot
+  hosts: windows
+  gather_facts: yes
+
+  vars:
+    update_source: windows_update
+    reboot_timeout: 1800
+    post_reboot_delay: 30
+
+    teams_webhook: "https://ardent365.webhook.office.com/webhookb2/778d27bf-3424-47f5-8dc9-1007a44345b6@513ad1e8-5532-4f6b-ada4-1b55e6560288/IncomingWebhook/7ceef668663a45f9a759656d3a8b009d/8692370d-a030-46a6-bd7f-0c40bb8d77a0/V2vfUkJN88_KBy6VYUSkqmHEW7xhNTxnlT66biiy1411I1"
+
+  tasks:
+
+    # ------------------------------------------------------
+    # PASS 1
+    # ------------------------------------------------------
+    - name: Install ALL updates (Pass 1)
+      ansible.windows.win_updates:
+        state: installed
+        server_selection: "{{ update_source }}"
+        accept_list:
+          - "*"
+        reboot: no
+      register: p1
+
+    - name: Reboot if required (Pass 1)
+      ansible.windows.win_reboot:
+        reboot_timeout: "{{ reboot_timeout }}"
+        post_reboot_delay: "{{ post_reboot_delay }}"
+      when: p1.reboot_required | default(false)
+
+    # ------------------------------------------------------
+    # PASS 2
+    # ------------------------------------------------------
+    - name: Install ALL updates (Pass 2)
+      ansible.windows.win_updates:
+        state: installed
+        server_selection: "{{ update_source }}"
+        accept_list:
+          - "*"
+        reboot: no
+      register: p2
+
+    - name: Reboot if required (Pass 2)
+      ansible.windows.win_reboot:
+        reboot_timeout: "{{ reboot_timeout }}"
+        post_reboot_delay: "{{ post_reboot_delay }}"
+      when: p2.reboot_required | default(false)
+
+    # ------------------------------------------------------
+    # FINAL MANDATORY REBOOT
+    # ------------------------------------------------------
+    - name: FORCE reboot even if no update required it
+      ansible.windows.win_reboot:
+        msg: "Mandatory reboot after full system update"
+        reboot_timeout: "{{ reboot_timeout }}"
+        post_reboot_delay: "{{ post_reboot_delay }}"
+      register: final_reboot
+
+    # ------------------------------------------------------
+    # DETERMINE SUCCESS / FAILURE
+    # ------------------------------------------------------
+    - name: Determine update status message
+      set_fact:
+        update_status: "{{ ' SUCCESS  Updates Installed Successfully' if (p1.failed == false and p2.failed == false) else ' FAILED  Errors Occurred During Update' }}"
+        status_color: "{{ 'Good' if (p1.failed == false and p2.failed == false) else 'Attention' }}"
+
+    # ------------------------------------------------------
+    # SIMPLE TEAMS ADAPTIVE CARD
+    # ------------------------------------------------------
+    - name: Send Simple Teams Notification
+      uri:
+        url: "{{ teams_webhook }}"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+        body_format: json
+        body: |
+          {
+            "type": "message",
+            "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "type": "AdaptiveCard",
+                  "version": "1.4",
+                  "body": [
+
+                    {
+                      "type": "TextBlock",
+                      "text": "Windows Update & Forced Reboot Report",
+                      "weight": "Bolder",
+                      "size": "Large",
+                      "color": "Accent"
+                    },
+
+                    {
+                      "type": "FactSet",
+                      "facts": [
+                        { "title": "Server:", "value": "{{ inventory_hostname }}" },
+                        { "title": "Time:",   "value": "{{ ansible_date_time.iso8601 }}" }
+                      ]
+                    },
+
+                    {
+                      "type": "TextBlock",
+                      "text": "{{ update_status }}",
+                      "weight": "Bolder",
+                      "color": "{{ status_color }}",
+                      "size": "Medium",
+                      "spacing": "Medium"
+                    },
+
+                    {
+                      "type": "FactSet",
+                      "facts": [
+                        { "title": "Initial Update Pass:",   "value": "{{ p1.updates | default([]) | length }} updates" },
+                        { "title": "Secondary Update Pass:", "value": "{{ p2.updates | default([]) | length }} updates" },
+                        { "title": "Final Reboot:",          "value": "Completed " }
+                      ]
+                    },
+
+                    {
+                      "type": "TextBlock",
+                      "text": " Initial Update Pass Details",
+                      "weight": "Bolder",
+                      "spacing": "Medium"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "{{ p1.updates | default([]) }}",
+                      "wrap": true
+                    },
+
+                    {
+                      "type": "TextBlock",
+                      "text": " Secondary Update Pass Details",
+                      "weight": "Bolder",
+                      "spacing": "Medium"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "{{ p2.updates | default([]) }}",
+                      "wrap": true
+                    }
+
+                  ]
+                }
+              }
+            ]
+          }
+      delegate_to: localhost
+
+    # ------------------------------------------------------
+    # WEEKLY AUTO-SCHEDULE (Sunday @ 2 AM)
+    # ------------------------------------------------------
+    - name: Create script folder
+      win_file:
+        path: "C:\\ProgramData\\Ansible"
+        state: directory
+
+    - name: Create wrapper script for scheduled task
+      win_copy:
+        dest: "C:\\ProgramData\\Ansible\\update_script.ps1"
+        content: |
+          ansible-playbook C:\ProgramData\Ansible\update-everything-force-reboot-standard.yml
+
+    - name: Schedule weekly Windows Update Task
+      win_scheduled_task:
+        name: "Weekly_Windows_Update_Full"
+        description: "Weekly automated full update + forced reboot"
+        actions:
+          - path: powershell.exe
+            arguments: "-ExecutionPolicy Bypass -File C:\\ProgramData\\Ansible\\update_script.ps1"
+        triggers:
+          - type: weekly
+            days_of_week:
+              - Sunday
+            start_boundary: "2026-03-29T02:00:00"
+        username: "SYSTEM"
+        state: present
