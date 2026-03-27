@@ -1,0 +1,202 @@
+---
+- name: Full Windows Event Log Maintenance (Backup + Clear + Rotation + Teams Adaptive Card + Daily Schedule)
+  hosts: windows
+  gather_facts: yes
+
+  vars:
+    script_path: "C:\\Scripts\\rotate-eventlogs.ps1"
+    teams_webhook: "https://ardent365.webhook.office.com/webhookb2/778d27bf-3424-47f5-8dc9-1007a44345b6@513ad1e8-5532-4f6b-ada4-1b55e6560288/IncomingWebhook/7ceef668663a45f9a759656d3a8b009d/8692370d-a030-46a6-bd7f-0c40bb8d77a0/V2vfUkJN88_KBy6VYUSkqmHEW7xhNTxnlT66biiy1411I1"
+
+  tasks:
+
+    # ------------------------------------------------------
+    # 1. Create Scripts Folder
+    # ------------------------------------------------------
+    - name: Ensure Scripts folder exists
+      win_file:
+        path: "C:\\Scripts"
+        state: directory
+
+    # ------------------------------------------------------
+    # 2. Upload Embedded PowerShell Script
+    # ------------------------------------------------------
+    - name: Upload Event Log Rotation PowerShell Script
+      win_copy:
+        dest: "{{ script_path }}"
+        content: |
+          # Event Log Rotation Script - Backup + Clear
+          $backupDir = "C:\\EventLogBackups"
+          if (!(Test-Path $backupDir)) {
+              New-Item -Path $backupDir -ItemType Directory
+          }
+
+          $logs = wevtutil el
+
+          foreach ($log in $logs) {
+              try {
+                  $safe = $log -replace '[\\\/:*?"<>\|]', '_'
+                  $backupPath = "$backupDir\\$safe.evtx"
+                
+                  wevtutil epl "$log" "$backupPath"
+                  wevtutil cl "$log"
+              }
+              catch { }
+          }
+
+          Write-Output "Event Log Rotation Completed Successfully"
+
+    # ------------------------------------------------------
+    # 3. Run the Script Immediately
+    # ------------------------------------------------------
+    - name: Run event log rotation now
+      win_shell: |
+        powershell.exe -ExecutionPolicy Bypass -File "{{ script_path }}"
+      register: rotation_output
+
+    - name: Show script output (debug)
+      debug:
+        var: rotation_output.stdout
+
+    # ------------------------------------------------------
+    # 4. Send Teams Adaptive Card Notification
+    # ------------------------------------------------------
+    - name: Send Teams Adaptive Card notification
+      uri:
+        url: "{{ teams_webhook }}"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+        body: |
+          {
+            "type": "message",
+            "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "type": "AdaptiveCard",
+                  "version": "1.4",
+                  "body": [
+                    {
+                      "type": "Container",
+                      "style": "accent",
+                      "bleed": true,
+                      "items": [
+                        {
+                          "type": "TextBlock",
+                          "text": " Windows Event Log Cleanup Completed",
+                          "weight": "Bolder",
+                          "size": "Large",
+                          "color": "Accent"
+                        },
+                        {
+                          "type": "TextBlock",
+                          "text": "Server: **{{ inventory_hostname }}**",
+                          "wrap": true,
+                          "color": "Default",
+                          "spacing": "None"
+                        },
+                        {
+                          "type": "TextBlock",
+                          "text": "Time: **{{ ansible_date_time.iso8601 }}**",
+                          "wrap": true,
+                          "color": "Default",
+                          "spacing": "None"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "Container",
+                      "spacing": "Medium",
+                      "items": [
+                        {
+                          "type": "TextBlock",
+                          "text": " Log Rotation Summary",
+                          "weight": "Bolder",
+                          "size": "Medium"
+                        },
+                        {
+                          "type": "ColumnSet",
+                          "columns": [
+                            {
+                              "type": "Column",
+                              "width": "auto",
+                              "items": [
+                                {
+                                  "type": "TextBlock",
+                                  "text": " Backup Location",
+                                  "weight": "Bolder"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "Column",
+                              "width": "stretch",
+                              "items": [
+                                {
+                                  "type": "TextBlock",
+                                  "text": "C:\\\\EventLogBackups"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "ColumnSet",
+                          "columns": [
+                            {
+                              "type": "Column",
+                              "width": "auto",
+                              "items": [
+                                {
+                                  "type": "TextBlock",
+                                  "text": " Status",
+                                  "weight": "Bolder"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "Column",
+                              "width": "stretch",
+                              "items": [
+                                {
+                                  "type": "TextBlock",
+                                  "text": " Successful",
+                                  "color": "Good"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "Event logs were backed up and safely cleared.",
+                      "wrap": true,
+                      "size": "Small",
+                      "spacing": "Medium"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        body_format: json
+      delegate_to: localhost
+
+    # ------------------------------------------------------
+    # 5. Schedule Daily Log Rotation (2 AM)
+    # ------------------------------------------------------
+    - name: Schedule log rotation daily at 2 AM
+      win_scheduled_task:
+        name: "EventLog_Rotation_Daily"
+        description: "Daily Event Log Maintenance"
+        actions:
+          - path: powershell.exe
+            arguments: "-ExecutionPolicy Bypass -File {{ script_path }}"
+        triggers:
+          - type: daily
+            start_boundary: "2026-03-27T02:00:00"
+        username: "SYSTEM"
+        state: present

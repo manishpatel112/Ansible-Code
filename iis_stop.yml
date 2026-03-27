@@ -1,0 +1,10 @@
+---
+- name: Stop IIS on Windows Server
+  hosts: windows
+  gather_facts: no
+
+  tasks:
+    - name: Stop IIS service (W3SVC)
+      ansible.windows.win_service:
+        name: "W3SVC"
+        state: stopped
