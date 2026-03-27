@@ -1,8 +1,10 @@
-# This playbook removes temp files, clears caches, empties recycle bin, and frees up disk space safely on a Windows server.
 ---
 - name: Automated Disk Cleanup & Temp File Removal for Windows
   hosts: windows
-  gather_facts: no
+  gather_facts: yes
+
+  vars:
+    teams_webhook: "https://ardent365.webhook.office.com/webhookb2/778d27bf-3424-47f5-8dc9-1007a44345b6@513ad1e8-5532-4f6b-ada4-1b55e6560288/IncomingWebhook/7ceef668663a45f9a759656d3a8b009d/8692370d-a030-46a6-bd7f-0c40bb8d77a0/V2vfUkJN88_KBy6VYUSkqmHEW7xhNTxnlT66biiy1411I1"
 
   tasks:
 
@@ -10,12 +12,12 @@
     # CLEAN WINDOWS TEMP DIRECTORIES
     # ===============================
     - name: Clean Windows Temp folder
-      ansible.windows.win_shell: |
+      win_shell: |
         Remove-Item -Path "C:\Windows\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue
       register: win_temp_cleanup
 
     - name: Clean User Temp folders
-      ansible.windows.win_shell: |
+      win_shell: |
         Get-ChildItem -Path "C:\Users\*\AppData\Local\Temp\*" -ErrorAction SilentlyContinue |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
       register: user_temp_cleanup
@@ -24,16 +26,15 @@
     # EMPTY RECYCLE BIN
     # ===============================
     - name: Empty Recycle Bin
-      ansible.windows.win_shell: |
+      win_shell: |
         Clear-RecycleBin -Force -ErrorAction SilentlyContinue
       register: recyclebin_cleanup
 
     # ===============================
     # CLEAN WINDOWS UPDATE CACHE
-    # (Safe + recommended)
     # ===============================
     - name: Clean Windows Update download cache
-      ansible.windows.win_shell: |
+      win_shell: |
         Remove-Item "C:\Windows\SoftwareDistribution\Download\*" -Recurse -Force -ErrorAction SilentlyContinue
       register: wu_cache_cleanup
 
@@ -41,7 +42,7 @@
     # OPTIONAL: CLEAN PREFETCH
     # ===============================
     - name: Clean Windows Prefetch (optional)
-      ansible.windows.win_shell: |
+      win_shell: |
         Remove-Item "C:\Windows\Prefetch\*" -Recurse -Force -ErrorAction SilentlyContinue
       register: prefetch_cleanup
 
@@ -49,10 +50,75 @@
     # SUMMARY OUTPUT
     # ===============================
     - name: Summary of disk cleanup
-      ansible.builtin.debug:
+      debug:
         msg:
           - "Windows Temp Cleaned"
           - "User Temp Cleaned"
           - "Recycle Bin Emptied"
           - "Windows Update Cache Cleaned"
           - "Prefetch Cleaned"
+
+    # ===============================
+    # SEND TEAMS ADAPTIVE CARD
+    # ===============================
+    - name: Send Teams Adaptive Card with Cleanup Summary
+      uri:
+        url: "{{ teams_webhook }}"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+        body_format: json
+        body: |
+          {
+            "type": "message",
+            "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "type": "AdaptiveCard",
+                  "version": "1.4",
+                  "body": [
+                    {
+                      "type": "TextBlock",
+                      "text": " Windows Disk Cleanup Completed",
+                      "weight": "Bolder",
+                      "size": "Large",
+                      "color": "Accent"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "Server: **{{ inventory_hostname }}**",
+                      "wrap": true,
+                      "color": "Default"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "Time: **{{ ansible_date_time.iso8601 }}**",
+                      "wrap": true,
+                      "spacing": "Small",
+                      "color": "Default"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": " Cleanup Summary",
+                      "weight": "Bolder",
+                      "size": "Medium",
+                      "spacing": "Medium"
+                    },
+                    {
+                      "type": "FactSet",
+                      "facts": [
+                        { "title": "Windows Temp:",    "value": "Cleaned" },
+                        { "title": "User Temp:",       "value": "Cleaned" },
+                        { "title": "Recycle Bin:",     "value": "Emptied" },
+                        { "title": "WU Cache:",        "value": "Cleaned" },
+                        { "title": "Prefetch:",        "value": "Cleaned" }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+      delegate_to: localhost
